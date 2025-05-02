@@ -50,15 +50,3 @@ If everything is on the same subnet (LiDAR: **192.168.123.120**,
 PC: **192.168.123.222**) you’ll see a real-time growing point-cloud map in an
 Open3D window.
 
-## Custom processing
-
-Override (or monkey-patch) the method
-
-```python
-def Livox.handle_points(self, xyz: np.ndarray):
-    ...
-```
-
-to log frames to disk, feed a neural net, etc.
-
-Enjoy – and open an issue / PR if you hit any problems!
