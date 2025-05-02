@@ -4,3 +4,6 @@
 [submodule "livox-SDK2"]
 	path = livox-SDK2
 	url = https://github.com/Livox-SDK/Livox-SDK2.git
+[submodule "unitree_sdk2_python"]
+	path = unitree_sdk2_python
+	url = https://github.com/unitreerobotics/unitree_sdk2_python.git
