@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>RealSense Streaming Documentation</title>
+  <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;margin:0;padding:0 1rem;max-width:960px;margin-left:auto;margin-right:auto}
+      nav{background:#111;color:#fff;padding:.5rem 1rem;margin-bottom:2rem}
+      nav a{color:#fff;margin-right:1rem;text-decoration:none;font-weight:600}
+      pre,code{background:#f4f4f4;border:1px solid #ddd;border-radius:4px;padding:2px 4px;font-family:monospace}
+      pre{padding:.75rem;overflow:auto}
+      h1,h2,h3{margin-top:2rem}
+      table{border-collapse:collapse;width:100%}
+      th,td{border:1px solid #ddd;padding:.4rem;text-align:left}
+      th{background:#f2f2f2}
+      details{margin-bottom:1rem}
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="#quick-start">Quick&nbsp;start</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#scripts">Scripts</a>
+    <a href="#troubleshooting">Troubleshooting</a>
+  </nav>
+
+  <h1 id="overview">RealSense Streaming Documentation</h1>
+  <p>Browser-friendly cheat-sheet and deep-dive for streaming colour &amp; depth from the Jetson-mounted Intel RealSense D435i to your laptop/desktop.</p>
+
+  <h2 id="quick-start">1&nbsp;· Quick start ⚡️</h2>
+
+  <h3>Wiring &amp; network</h3>
+  <ul>
+    <li>Connect the D435i to the Jetson NX via <strong>USB-C</strong>.</li>
+    <li>Ensure Jetson and PC share the same subnet (e.g. <code>192.168.123.*</code>).</li>
+    <li>UDP ports <strong>5600 (RGB) and 5602 (Depth)</strong> must be reachable.</li>
+  </ul>
+
+  <h3>Dependencies</h3>
+  <details><summary><strong>Jetson</strong></summary>
+  <pre><code>sudo apt install -y python3-gi gstreamer1.0-tools \
+  gstreamer1.0-plugins-{good,bad} gstreamer1.0-libav
+python3.10 -m pip install --user --upgrade pyrealsense2 numpy opencv-python</code></pre>
+  </details>
+
+  <details><summary><strong>Laptop / Work-station</strong></summary>
+  <pre><code>sudo apt install -y python3-gi gir1.2-gst-plugins-base-1.0 \
+  gir1.2-gstreamer-1.0 gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad gstreamer1.0-libav
+python3.10 -m pip install --user --upgrade numpy opencv-python</code></pre>
+  </details>
+
+  <h3>Run it</h3>
+  <p><strong>On the Jetson</strong> (<code>&lt;PC-IP&gt;</code> = your laptop’s address):</p>
+  <pre><code>python3.10 jetson_realsense_stream.py --client-ip &lt;PC-IP&gt; --width 640 --height 480 --fps 30</code></pre>
+  <pre><code>python3.10 jetson_realsense_stream.py --client-ip 192.168.123.222 --width 640 --height 480 --fps 30</code></pre>
+
+
+  <p><strong>On the laptop</strong>:</p>
+  <pre><code>python3.10 receive_realsense_gst.py</code></pre>
+
+  <p>RGB + colour-mapped depth should now appear at ~30 FPS. Press <kbd>q</kbd> or <kbd>ESC</kbd> to quit.</p>
+
+  <hr/>
+
+  <h2 id="how-it-works">2&nbsp;· How it works 🤔</h2>
+
+  <p>The RealSense frames are captured on the Jetson and injected into a GStreamer pipeline that makes use of the hardware H.264 encoder. Two RTP streams are sent over the network and decoded on the PC:</p>
+
+  <pre><code>D435i → Jetson (AppSrc→H.264) → 5600/UDP (RGB)
+                         ↳→ 5602/UDP (Depth-colour-mapped)
+PC (udpsrc→H.264 decoder) → NumPy → cv2.imshow()</code></pre>
+
+  <p>See the repo for full source of <code>jetson_realsense_stream.py</code> and <code>receive_realsense_gst.py</code>.</p>
+
+  <h3>Ports &amp; formats</h3>
+  <ul>
+    <li><strong>5600/udp</strong> – RTP payload 96, H.264-encoded RGB.</li>
+    <li><strong>5602/udp</strong> – RTP payload 97, H.264-encoded colourised depth.</li>
+  </ul>
+
+  <h3>Pseudo-pipeline (sender)</h3>
+  <pre><code>AppSrc (BGR)  ─┬videoconvert─nvvidconv─nvv4l2h264enc─rtph264pay─udpsink 5600
+              └videoconvert─nvvidconv─nvv4l2h264enc─rtph264pay─udpsink 5602</code></pre>
+
+  <hr/>
+
+  <h2 id="scripts">3&nbsp;· Script reference 📜</h2>
+
+  <table>
+    <tr><th>Script</th><th>Run on</th><th>Purpose</th></tr>
+    <tr><td><code>list_realsense_devices.py</code></td><td>Jetson or PC</td><td>List connected cameras, serials, firmware.</td></tr>
+    <tr><td><code>stream_realsense.py</code></td><td>either</td><td>Show RGB + depth locally (no network).</td></tr>
+    <tr><td><code>jetson_realsense_stream.py</code></td><td><strong>Jetson NX</strong></td><td>Send two RTP/H.264 streams.</td></tr>
+    <tr><td><code>receive_realsense_gst.py</code></td><td><strong>PC</strong></td><td>GStreamer receiver, works w/ default OpenCV.</td></tr>
+    <tr><td><code>receive_realsense_stream.py</code></td><td>PC</td><td>Alternative receiver using <code>cv2.VideoCapture</code>.</td></tr>
+  </table>
+
+  <h3>Sender CLI flags</h3>
+  <pre><code>python3.10 jetson_realsense_stream.py --client-ip 192.168.123.222 \
+    --width 640 --height 480 --fps 30</code></pre>
+
+  <hr/>
+
+  <h2 id="troubleshooting">4&nbsp;· Troubleshooting 🐛</h2>
+
+  <table>
+    <tr><th>Symptom</th><th>Reason</th><th>Fix</th></tr>
+    <tr><td>No device found</td><td>USB not detected</td><td>Re-seat cable, check <code>lsusb -d 8086:0b3a</code>.</td></tr>
+    <tr><td>Black window</td><td>Firewall blocks ports</td><td>Allow UDP 5600/5602.</td></tr>
+    <tr><td>High latency</td><td>Wi-Fi congestion</td><td>Use Ethernet or 5 GHz.</td></tr>
+    <tr><td>Buffer alloc warnings</td><td>Dropped packets</td><td>Lower resolution/FPS or raise bitrate.</td></tr>
+  </table>
+
+  <p><em>Tip:</em> use <code>GST_DEBUG=2</code> on the sender for verbose GStreamer logs, or Wireshark to inspect RTP packets.</p>
+
+  <p style="text-align:center;margin:3rem 0">— End —</p>
+</body>
+</html>

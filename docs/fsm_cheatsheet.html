@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Unitree&nbsp;G-1 Locomotion Cheat-Sheet</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem auto;
+        max-width: 900px;
+        line-height: 1.45;
+      }
+      h1, h2, h3 {
+        line-height: 1.2;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1rem 0;
+      }
+      th, td {
+        border: 1px solid #ccc;
+        padding: 0.4rem 0.6rem;
+        text-align: left;
+      }
+      th {
+        background: #f0f0f0;
+      }
+      code {
+        background: #f9f9f9;
+        border: 1px solid #e2e2e2;
+        padding: 0 0.2rem;
+        border-radius: 3px;
+      }
+      .note {
+        background: #ffffe0;
+        border-left: 4px solid #ffb000;
+        padding: 0.5rem 0.75rem;
+        margin: 1rem 0;
+      }
+      details {
+        margin-bottom: 1rem;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Unitree&nbsp;G-1 Locomotion Cheat-Sheet</h1>
+
+    <p>This page condenses what we learned while bringing the G-1 from its
+    default damp-hanging state to a fully balanced stand using the
+    <code>unitree_sdk2py</code> API.</p>
+
+    <details open>
+      <summary>FSM&nbsp;IDs (high-level state machine)</summary>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Name / Action</th><th>Typical use</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>0</td><td>Zero-Torque</td><td>Motors off – safe to handle legs.</td></tr>
+          <tr><td>1</td><td>Damp</td><td>Viscous damping only (soft) – default power-on.</td></tr>
+          <tr><td>2</td><td>Squat</td><td>Static low squat.</td></tr>
+          <tr><td>3</td><td>Sit</td><td>Dog-sit posture.</td></tr>
+          <tr><td>4</td><td>Stand-up</td><td>Firmware-defined stand, good after Damp.</td></tr>
+          <tr><td>200</td><td><strong>Start</strong></td><td>Balance controller &amp; gait planner.</td></tr>
+          <tr><td>702</td><td>Lie-to-Stand</td><td>Get up from lying on the back.</td></tr>
+          <tr><td>706</td><td>Squat-to-Stand-up</td><td>Smooth rise from deep squat.</td></tr>
+        </tbody>
+      </table>
+    </details>
+
+    <details open>
+      <summary>Sport&nbsp;Mode&nbsp;State (<code>mode</code> field)</summary>
+      <table>
+        <thead><tr><th>Value</th><th>Meaning</th><th>Comment</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>Static stand</td><td>Feet loaded; robot balancing but not stepping.</td></tr>
+          <tr><td>1</td><td>Dynamic / gait</td><td>Feet loaded; gait planner active (walking, etc.).</td></tr>
+          <tr><td>2</td><td>Feet <em>un-loaded</em></td><td>Hanging or airborne.</td></tr>
+        </tbody>
+      </table>
+    </details>
+
+    <details open>
+      <summary>Bring-up Sequence (hanging → balanced stand)</summary>
+      <ol>
+        <li><code>Damp</code> – joints soft.</li>
+        <li><code>Stand-up</code> (FSM 4) – firmware extends legs part-way.</li>
+        <li>Increment <code>SetStandHeight</code> until <code>mode</code> flips 2→0.</li>
+        <li><code>BalanceStand(0)</code> (or <code>SetBalanceMode(0)</code>).</li>
+        <li>Re-send final <code>SetStandHeight</code>.</li>
+        <li>(Optional) <code>SetBalanceMode(1)</code> for continuous gait.</li>
+        <li><code>Start</code> (FSM 200) – engage walking controller.</li>
+      </ol>
+    </details>
+
+    <details open>
+      <summary>Things we discovered</summary>
+      <div class="note">
+        <ul>
+          <li><strong>Stand-height parameter</strong> in the SDK is an absolute
+          linear measure in metres, <em>not</em> the raw UINT32 code used by
+          some C++ examples.</li>
+          <li><code>ContinuousGait()</code> from the C++ API maps to
+          <code>SetBalanceMode(1)</code> in Python (wrapper doesn’t expose the helper).</li>
+          <li><code>SetStandHeight</code> has no effect while still in FSM 1 (Damp);
+          the robot must be at least in Stand-up or Balance before it reacts.</li>
+        </ul>
+      </div>
+    </details>
+
+    <p style="text-align:center;margin-top:3rem;font-size:0.9rem;">Last updated · 25 Apr 2025</p>
+  </body>
+</html>

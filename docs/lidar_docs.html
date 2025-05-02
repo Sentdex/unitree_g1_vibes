@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Livox MID-360 – Python LiDAR toolkit</title>
+    <style>
+      body {
+        max-width: 900px;
+        margin: 2rem auto;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+        line-height: 1.55;
+        padding: 0 1rem;
+        color: #222;
+      }
+      h1, h2, h3 {
+        color: #014;
+        margin-top: 2.2rem;
+      }
+      pre {
+        background: #f7f9fa;
+        padding: 0.8rem 1rem;
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+      code {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+        font-size: 0.9rem;
+      }
+      .pill {
+        background: #e7edff;
+        color: #014;
+        border-radius: 999px;
+        padding: 0.15rem 0.6rem;
+        font-size: 0.8rem;
+        vertical-align: middle;
+        margin-left: 0.3rem;
+      }
+      ul {
+        margin-left: 1.3rem;
+      }
+
+      abbr[title] {
+        text-decoration: underline dotted; /* visual cue there is a tooltip */
+        cursor: help;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Livox MID-360 – 100&nbsp;% Python point-cloud &amp; SLAM stack</h1>
+
+    <p>
+      This page gives a bird’s-eye view of the tiny code-base that lets you
+      stream a <strong>Livox MID-360</strong> (or any other Livox) straight into
+      Python – no ROS, no bag files, no C++.
+    </p>
+
+    <h2 id="files">1. What lives where?</h2>
+    <ul>
+      <li>
+        <code>livox_python.py</code>
+        <span class="pill">SDK&nbsp;1</span> &nbsp;and&nbsp;
+        <code>livox2_python.py</code> <span class="pill">SDK&nbsp;2</span><br />
+        Thin <code>ctypes</code> wrappers around the vendor SDKs. They expose
+        one class – <code>Livox</code> – whose
+        <code>handle_points(xyz: np.ndarray)</code> callback delivers every UDP
+        packet as a <code>(N,3)</code> float array.
+      </li>
+      <li>
+        <code>live_points.py</code> – “Hello&nbsp;Cloud” viewer.<br />
+        Streams each frame into Open3D so you can verify the network/SDK setup
+        before worrying about SLAM.
+      </li>
+      <li>
+        <code>live_slam.py</code> – real-time LiDAR-SLAM demo.<br />
+        Feeds the raw stream through <a href="https://github.com/PRBonn/kiss-icp" target="_blank" title="KISS-ICP = \"Keep-It-Simple Scan-to-Scan/Map Iterative Closest Point\": a lightweight LiDAR odometry & mapping library">KISS-ICP</a> and visualises the growing map and current pose.
+      </li>
+    </ul>
+
+    <h2 id="stack">2. Tech-stack at a glance</h2>
+    <p>The demo is only ~600&nbsp;lines of Python but relies on a small stack of libraries, each doing one job well:</p>
+
+    <table style="border-collapse:collapse;font-size:0.9rem">
+      <thead>
+        <tr style="text-align:left;background:#eef3ff">
+          <th style="padding:6px 8px">Layer</th>
+          <th style="padding:6px 8px">What it does</th>
+          <th style="padding:6px 8px">Where in repo</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:6px 8px"><strong>Livox-SDK&nbsp;2 / 1</strong><br><em>(C/C++)</em></td>
+          <td style="padding:6px 8px">Discovers the LiDAR, negotiates UDP streams, does rain-&amp;dust filtering, converts raw packets → Cartesian XYZ.</td>
+          <td style="padding:6px 8px">External – built once under <code>/usr/local/lib/</code></td>
+        </tr>
+        <tr style="background:#f7f9fa">
+          <td style="padding:6px 8px"><strong>ctypes wrapper</strong></td>
+          <td style="padding:6px 8px">Loads the shared <code>.so/.dll</code> and re-exposes every point packet as a NumPy array via <code>handle_points()</code> callback (non-blocking).</td>
+          <td style="padding:6px 8px"><code>livox2_python.py</code><br><code>livox_python.py</code></td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px"><strong>NumPy</strong></td>
+          <td style="padding:6px 8px">Cheap, zero-copy view of the SDK’s C buffer; lingua-franca for the rest of the pipeline.</td>
+          <td style="padding:6px 8px">pip package</td>
+        </tr>
+        <tr style="background:#f7f9fa">
+          <td style="padding:6px 8px"><strong>KISS-ICP</strong></td>
+          <td style="padding:6px 8px">Real-time <abbr title="Odometry = estimate of how the sensor moved between two consecutive scans (Δx, Δy, Δz + rotations). The pose increments are chained to obtain the global trajectory.">odometry</abbr> &amp; <abbr title="A voxel-hash map is a sparse 3-D grid stored in a hash-table so empty space costs zero memory.">voxel-hash map</abbr> building. Inputs a frame of points, outputs current 4×4 <abbr title="Pose = full 6-DoF position + orientation of the sensor expressed as a 4×4 homogeneous transform matrix.">pose</abbr> &amp; local map.</td>
+          <td style="padding:6px 8px">pip package – used in <code>live_slam.py</code></td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px"><strong>Open3D</strong></td>
+          <td style="padding:6px 8px">Fast point-cloud visualisation (and mesh utilities if you need them later). Main thread drives the GUI.</td>
+          <td style="padding:6px 8px">pip package – viewer helper class inside both demos</td>
+        </tr>
+        <tr style="background:#f7f9fa">
+          <td style="padding:6px 8px"><strong>Glue scripts</strong></td>
+          <td style="padding:6px 8px">Small orchestration logic, signal handling, ring-buffer, mount correction, preset tuning.</td>
+          <td style="padding:6px 8px"><code>live_points.py</code><br><code>live_slam.py</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2 id="setup">3. One-time installation</h2>
+
+    <h3>2.1&nbsp;Build the vendor SDK</h3>
+
+    <p>
+      The code prefers <strong>SDK&nbsp;2</strong> (push-mode, officially
+      recommended for new designs) and will automatically fall back to
+      SDK&nbsp;1 if the shared library for SDK&nbsp;2 cannot be found.
+    </p>
+
+    <h4>2.1.1&nbsp;SDK&nbsp;2 (recommended)</h4>
+    <pre><code># Linux example (adapt paths for Windows / macOS)
+git clone https://github.com/Livox-SDK/Livox-SDK2.git
+cd Livox-SDK2 &amp;&amp; mkdir build &amp;&amp; cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+sudo make install        # → /usr/local/lib/liblivox_lidar_sdk.so
+sudo ldconfig</code></pre>
+
+    <p>
+      After the build you will also need a small JSON configuration file that
+      tells the LiDAR the <em>host&nbsp;IP</em> of the PC that will receive the
+      packets (default <code>192.168.123.222</code>). An example for the
+      MID-360 is provided as <code>mid360_config.json</code> in this repo.
+    </p>
+
+    <h4>2.1.2&nbsp;SDK&nbsp;1 (legacy, still works)</h4>
+    <pre><code># Only needed if you cannot or do not want to use SDK 2
+git clone https://github.com/Livox-SDK/Livox-SDK.git
+cd Livox-SDK &amp;&amp; mkdir build &amp;&amp; cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+sudo make install        # → /usr/local/lib/liblivox_sdk.so
+sudo ldconfig</code></pre>
+
+    <h3>2.2&nbsp;Python environment</h3>
+    <pre><code>python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt    # numpy, open3d, kiss-icp …</code></pre>
+
+    <h2 id="run">4. Running the demos</h2>
+
+    <h3>3.1&nbsp;Live point cloud</h3>
+    <pre><code>python live_points.py</code></pre>
+    <p>Expect a 20&nbsp;Hz preview window. No motion estimation – the script keeps just a small ring buffer to reduce flicker.</p>
+
+    <h3>3.2&nbsp;LiDAR-SLAM</h3>
+    <pre><code># ensure mid360_config.json points to your host IP
+
+# indoor preset (default)
+python live_slam.py
+
+# outdoor preset (coarser voxels, longer range)
+LIVOX_PRESET=outdoor python live_slam.py</code></pre>
+    <p>The internal pipeline looks like this:</p>
+    <pre><code>[ SDK callback thread ]           [ main / UI thread ]
+Livox.handle_points ──► KissICP.register_frame ──► _viewer.push()
+        ▲                                            │
+        └────────────── _viewer.tick() ◄─────────────┘
+    </code></pre>
+
+    <h2 id="tuning">5. Tweaking quality vs. speed</h2>
+
+    <p>
+      All quality settings live in the <code>_PRESETS</code> dictionary near the
+      top of <code>live_slam.py</code>. Use the table below to decide which ones
+      to tweak and what the trade-offs are.
+    </p>
+
+    <table style="border-collapse:collapse;font-size:0.88rem;">
+      <thead>
+        <tr style="background:#eef3ff;text-align:left">
+          <th style="padding:6px 8px">Parameter</th>
+          <th style="padding:6px 8px">Indoor / Outdoor default</th>
+          <th style="padding:6px 8px">If you raise it …</th>
+          <th style="padding:6px 8px">If you lower it …</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:6px 8px"><code>frame_time</code><br><code>frame_packets</code></td>
+          <td style="padding:6px 8px">0.35&nbsp;s / 200<br>0.20&nbsp;s / 120</td>
+          <td style="padding:6px 8px">Denser scans → prettier, but lower fps and higher CPU.</td>
+          <td style="padding:6px 8px">Higher fps, less latency, sparser clouds.</td>
+        </tr>
+        <tr style="background:#f7f9fa">
+          <td style="padding:6px 8px"><code>voxel_size</code></td>
+          <td style="padding:6px 8px">0.40&nbsp;m / 1.0&nbsp;m</td>
+          <td style="padding:6px 8px">Sharper map; RAM &amp; ICP time grow ~1/size³.</td>
+          <td style="padding:6px 8px">Coarser map; lighter on resources.</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px"><code>max_range</code></td>
+          <td style="padding:6px 8px">30&nbsp;m / 120&nbsp;m</td>
+          <td style="padding:6px 8px">Keeps far hits (needed outdoors) but noisier.</td>
+          <td style="padding:6px 8px">Crops noise &amp; speeds up ICP indoors.</td>
+        </tr>
+        <tr style="background:#f7f9fa">
+          <td style="padding:6px 8px"><code>downsample_limit</code></td>
+          <td style="padding:6px 8px">5&nbsp;M / 3&nbsp;M pts</td>
+          <td style="padding:6px 8px">Viewer looks dense; needs beefy GPU.</td>
+          <td style="padding:6px 8px">Viewer very responsive but sparse.</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px"><code>min_motion</code></td>
+          <td style="padding:6px 8px">0.03&nbsp;m / 0.10&nbsp;m</td>
+          <td style="padding:6px 8px">Captures tiny moves; might over-fit jitter.</td>
+          <td style="padding:6px 8px">Ignores small motion; robust on vibrations.</td>
+        </tr>
+        <tr style="background:#f7f9fa">
+          <td style="padding:6px 8px"><code>conv_criterion</code></td>
+          <td style="padding:6px 8px">5e-5 / 1e-4</td>
+          <td style="padding:6px 8px">Tighter ICP convergence → accuracy ↑ , speed ↓.</td>
+          <td style="padding:6px 8px">Looser stop → faster, risk of drift.</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px"><code>max_iters</code></td>
+          <td style="padding:6px 8px">800 / 500</td>
+          <td style="padding:6px 8px">Lets ICP grind until perfect; heavy CPU.</td>
+          <td style="padding:6px 8px">Quicker but less precise alignment.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="margin-top:1rem">
+      The built-in <strong>indoor</strong> preset prioritises detail and lower
+      range; <strong>outdoor</strong> loosens everything for speed and long
+      distances.  You can override any key via environment variable<br/>
+      (e.g.&nbsp;<code>LIVOX_VOXEL=0.25</code>) or by editing the dictionary.
+    </p>
+
+    <h2 id="env">6. Handy environment switches</h2>
+    <ul>
+      <li><code>LIVOX_MOUNT=normal|upside_down</code> – default is <em>upside_down</em>.</li>
+      <li><code>LIVOX_PRESET=indoor|outdoor</code> – tunes KISS-ICP parameters.</li>
+    </ul>
+
+    <h2 id="extend">7. Extending the pipeline</h2>
+    <p>
+      Everything arrives as a vanilla NumPy array – subclass <code>Livox</code>
+      or monkey-patch <code>handle_points()</code> to log frames, feed a neural
+      net, stream to ROS, …
+    </p>
+
+    <h2 id="debug">8. Troubleshooting</h2>
+    <ul>
+      <li>Only one NIC should sit on <code>192.168.123.0/24</code>.</li>
+      <li>Open UDP&nbsp;55000-56000 and 7500-7510 in your firewall.</li>
+      <li>If frames stall, try the SDK’s <code>lidar_lvx_file_writer</code> demo.</li>
+      <li>Import errors? <code>pip install -U kiss-icp</code>.</li>
+    </ul>
+
+    <p style="margin-top:3rem; font-size:0.9rem; color:#666">Happy mapping!</p>
+  </body>
+</html>
