@@ -1,0 +1,110 @@
+issues: 
+
+*- need to fix the head detecting self via lidar. The Lidar unit is mounted inside of the robot's head and it detects elements of the head essentially right at the level of the lidar unit and it leaves a trail of "detections" as the robot walks around that we need to handle for. It should be essentially invalid if the lidar detects a pixel within like 2 inches of the lidar, for example. "Exclude radius"  --self-mask 2
+*-- LIDAR_SELF_FILTER_RADIUS=0.30  LIDAR_SELF_FILTER_Z=0.24  python3.10 run_geoff_gui.py
+*- need to "flip" the occupancy grid, its oriented wrong.
+*-- was getting a redundant flip 
+*- display battery % (if possible??) (not possible.)
+*- Faster gait (0.6m/s default, press and hold shift for 1.2m/s)
+
+
+
+- hand control?
+- route planning borked.
+
+
+
+    codex
+    Short answer
+    • Yes – the G1 can keep its “standing / walking-balance” controller running while you command the arms to reach and grasp.
+    • In practice you will break the job into two or three phases so the robot never leaves its comfort zone.
+
+    ──────────────────────────────────
+
+        1. Architecture that makes it work
+           ──────────────────────────────────
+           Balance / gait: handled by the built-in “loco” FSM that you drive through the `LocoClient` RPCs (`SetVelocity`, `SetFsmId`, etc.).
+
+    Arm motion: sent at 50 Hz (high-level) or 500 Hz (low-level) on
+        • topic rt/arm_sdk  – joint-space PD commands, or
+        • topic rt/lowcmd   – full torque-level control.
+
+    Those two loops are independent, so while the legs are stepping the shoulders/elbows can move freely.  The ankle/waist stabilizer automatically cancels the small COM
+    shifts from ordinary arm motion.
+
+    ──────────────────────────────────
+    2.  A practical “get bottle from counter” sequence
+    ──────────────────────────────────
+    Step 0  Initialisation
+        msc = MotionSwitcherClient(); msc.Init(); msc.SelectMode("stand")
+
+    Step 1  Navigate to the counter
+        loco = LocoClient(); loco.Init()
+        • Send velocity commands until the front of the foot is ~0.3 m from the counter.
+        • Optionally slow to 0.05 m/s for the last 10 cm for precision.
+
+    Step 2  Stabilise for manipulation
+        loco.StopMove()                        # zero velocity
+        loco.SetBalanceMode(1)  (strong mode)  # stiffer ankles
+        # Robot is now in “stand” but still actively balancing.
+
+    Step 3  Reach & grasp
+        • Publish joint targets on rt/arm_sdk.
+          - Use waist-yaw (12) to face the bottle.
+          - Extend shoulder-pitch / elbow until the wrist is above the bottle.
+        • Lower kp on the elbow and wrist (≈20) so the arm is compliant while closing the gripper.
+        • Optional: add a small counter-lean with waist-roll (13) if reach is large (>20 cm forward).
+
+    Step 4  Lift and tuck
+        • Close the hand / attach suction cup.
+        • Retract the arm to a transport pose close to the torso.
+
+    Step 5  Walk back
+        loco.Move(vx=-0.3, vy=0, omega=0)      # walk backwards
+        or rotate 180 ° and walk forward.
+
+    Throughout steps 1 & 5 the arm controller is still on, holding the bottle.
+
+    ──────────────────────────────────
+    3.  Notes & limits
+    ──────────────────────────────────
+    • Small/medium reaches (hand ≲15 cm in front of shoulders) work while walking – the internal stabiliser compensates automatically.
+    • Large reaches or heavy objects shift the COM; either
+      – slow to a creep, or
+      – insert a short “stand” phase (as above) before grasping.
+    • If you need continuous walking while the hand stays 30 cm forward, you’ll have to add your own COM compensator or ask the robot to take shorter, wider steps
+    (SetStandHeight, SetBalanceMode).
+    • Wrist load limit is roughly 1 kg; heavier items require slower arm motion to avoid saturation.
+
+    ──────────────────────────────────
+    4.  Prototype code fragments
+    ──────────────────────────────────
+
+        # -------------- balance / locomotion --------------
+        loco = LocoClient(); loco.Init()
+        loco.SetVelocity(0.4, 0, 0)          # cruise forward
+        ...
+        loco.StopMove()                      # freeze in place
+        loco.SetBalanceMode(1)               # stiff stance
+
+        # -------------- arm reach -------------------------
+        arm_pub = ChannelPublisher("rt/arm_sdk", LowCmd_); arm_pub.Init()
+        cmd = LowCmd_()
+        cmd.motor_cmd[G1JointIndex.kNotUsedJoint].q = 1    # enable arm sdk
+        def set_joint(j, q, kp=40, kd=1):
+            mc = cmd.motor_cmd[j]; mc.q=q; mc.kp=kp; mc.kd=kd; mc.tau=0
+        # reach posture
+        set_joint( G1JointIndex.LeftShoulderPitch,  0.8 )
+        set_joint( G1JointIndex.LeftElbow,          1.6 )
+        ...
+        cmd.crc = CRC().Crc(cmd)
+        arm_pub.Write(cmd)
+
+    Send a new cmd every 20 ms while walking or standing – the two controllers do not interfere.
+
+    ──────────────────────────────────
+    Bottom line
+    • For most kitchen-scale grabs the stock “loco + arm” separation is good enough.
+    • If you need aggressive reaches during locomotion, add a waist/ankle lean or briefly stop to manipulate.
+    • Full whole-body control (dynamic ZMP planning) is possible via the 2 ms lowcmd loop, but that’s an advanced project.
+

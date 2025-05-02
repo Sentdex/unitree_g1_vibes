@@ -1,0 +1,4 @@
+numpy>=1.21
+open3d==0.16.0
+kiss-icp
+ctypeslib2

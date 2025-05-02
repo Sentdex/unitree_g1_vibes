@@ -1,0 +1,38 @@
+site_name: RealSense Streaming Docs
+site_description: Quick-start & in-depth guide for the Jetson ↔ Laptop RealSense streaming setup
+nav:
+  - Home: index.md
+  - Quick start: quick_start.md
+  - How it works: how_it_works.md
+  - Geoff GUI & full stack: geoff_stack.md
+  - Interactive explorer (beta): geoff_explorer.md
+  - Scripts reference: scripts.md
+  - Troubleshooting: troubleshooting.md
+theme:
+  name: material
+  # Enable Material for MkDocs built-in dark color scheme ("slate") and
+  # allow readers to toggle between light ↔ dark.  The first palette entry is
+  # used for light mode, the second for dark mode.  MkDocs automatically picks
+  # the variant that matches the visitor's OS preference and exposes a toggle
+  # icon in the upper-right corner.
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+
+    - scheme: slate  # built-in dark palette shipped with the theme
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+markdown_extensions:
+  - admonition
+  - codehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - toc:
+      permalink: true
