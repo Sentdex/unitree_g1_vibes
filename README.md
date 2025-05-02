@@ -6,6 +6,8 @@ I'll clean this up later.
 
 maybe.
 
+just putting it here so I can link to files w/o gisting everything
+
 # RGB / Depth camera stuff:
 
 Crontab on the jetson board:
