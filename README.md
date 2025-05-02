@@ -6,6 +6,17 @@ I'll clean this up later.
 
 maybe.
 
+# RGB / Depth camera stuff:
+
+@reboot /usr/bin/python3 /home/unitree/jetson_realsense_stream.py --client-ip 192.168.123.222 --width 640 --height 480 --fps 30
+
+That script: https://github.com/Sentdex/unitree_g1_vibes/blob/main/jetson_realsense_stream.py
+
+Receiver side: 
+https://github.com/Sentdex/unitree_g1_vibes/blob/main/receive_realsense_gst.py
+
+
+
 # Livox MID-360 – Pure-Python Point-Cloud & SLAM
 
 This mini-repo gives you a 100 % Python workflow for the **Livox MID-360** LiDAR
