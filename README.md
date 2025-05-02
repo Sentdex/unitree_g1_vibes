@@ -1,3 +1,11 @@
+# WIP
+
+Main file here is run_geoff_gui.py, everything ties into that.
+
+I'll clean this up later. 
+
+maybe.
+
 # Livox MID-360 – Pure-Python Point-Cloud & SLAM
 
 This mini-repo gives you a 100 % Python workflow for the **Livox MID-360** LiDAR
