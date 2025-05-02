@@ -1,3 +1,6 @@
 [submodule "librealsense"]
 	path = librealsense
 	url = https://github.com/IntelRealSense/librealsense.git
+[submodule "livox-SDK2"]
+	path = livox-SDK2
+	url = https://github.com/Livox-SDK/Livox-SDK2.git
