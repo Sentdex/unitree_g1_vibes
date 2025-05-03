@@ -16,6 +16,11 @@
 
 ---
 
+# Human's note:
+Aside from this lil blurb right here, this entire repo, readme, code...etc is all coded via Codex using o3. I have no relationship with Unitree or OpenAI, it's just what I'm doing and using. 
+
+While everything has been working as expected for me, please understand this is all LLM-generated code at my direction only. Have fun.
+
 ## 1. Bird-eye architecture
 
 ```text
