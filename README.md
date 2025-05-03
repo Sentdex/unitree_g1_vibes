@@ -10,6 +10,10 @@
 > 
 > A PySide6 window pops up showing RGB, depth, a 2-D occupancy preview and a fully interactive 3-D point-cloud.  Drive with **W A S D Q E** (shift for turbo) and enjoy.
 
+<p align="center">
+  <img src="docs/geoff-stack.png" alt="Geoff-Stack GUI screenshot" width="720"/>
+</p>
+
 ---
 
 ## 1. Bird-eye architecture
