@@ -362,61 +362,6 @@ class GeoffWindow(QtCore.QObject):  # type: ignore[misc]  # pylint: disable=too-
         self._drive_timer.timeout.connect(self._on_drive_tick)
         self._drive_timer.start()
 
-        # ------------------------------------------------------------------
-        #  Optional arm control (left elbow) ---------------------------------
-        # ------------------------------------------------------------------
-
-        # The Unitree SDK exposes a *separate* real-time DDS topic (``rt/arm_sdk``)
-        # for joint-space commands that can run in parallel to the walking
-        # controller.  We try to open a publisher here so we can send simple
-        # position targets to the left elbow whenever the operator presses
-        # <u> (raise) or <j> (lower).  All heavy SDK imports live inside the
-        # ``try`` so that the GUI continues to work on development machines
-        # that do not have the Unitree stack installed.
-
-        self._arm_pub = None  # type: ignore[assignment]
-        try:
-            from unitree_sdk2py.core.channel import ChannelPublisher  # type: ignore
-            # Import both the *class* (needed by ChannelPublisher) and the
-            # convenience factory that builds a zero-initialised instance.
-            from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_  # type: ignore
-            from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_  # type: ignore
-            from unitree_sdk2py.utils.crc import CRC  # type: ignore
-
-            # Joint indices for the G-1 humanoid (HG) – copied from the
-            # official example so we can address the elbow directly without
-            # pulling in the full enum class.
-            _LEFT_ELBOW_IDX = 18
-            _NOT_USED_IDX = 29  # special slot that enables arm_sdk when q=1
-
-            self._crc = CRC()
-
-            # Persistent command message we update every cycle.
-            self._arm_cmd = unitree_hg_msg_dds__LowCmd_()  # type: ignore[attr-defined]
-            # Enable arm-sdk mode once so the firmware accepts the joint cmds.
-            self._arm_cmd.motor_cmd[_NOT_USED_IDX].q = 1  # type: ignore[index]
-
-            self._ELBOW_MIN = 0.0     # rad (~straight)
-            self._ELBOW_MAX = 2.4     # rad (~140° flexed)
-            self._ELBOW_STEP = 0.04   # rad per tick (≈2.3°)
-
-            self._elbow_q = 0.0  # current target – start straight down
-
-            # DDS publisher
-            self._arm_pub = ChannelPublisher("rt/arm_sdk", LowCmd_)  # type: ignore[arg-type]
-            self._arm_pub.Init()
-
-            # Timer that updates & publishes at 50 Hz ----------------------
-            self._arm_timer = QtCore.QTimer()
-            self._arm_timer.setInterval(20)  # ms  (50 Hz)
-            self._arm_timer.timeout.connect(lambda: self._on_arm_tick(_LEFT_ELBOW_IDX))
-            self._arm_timer.start()
-
-        except Exception as exc:  # pylint: disable=broad-except
-            # No Unitree SDK – arm control remains disabled but the main GUI
-            # continues to operate normally.
-            print("[run_geoff_gui] Arm control disabled:", exc, file=sys.stderr)
-
         # Install as global event filter so we receive key events no matter
         # which child widget currently has focus.
         self.app.installEventFilter(self)  # type: ignore[arg-type]
@@ -544,23 +489,8 @@ class GeoffWindow(QtCore.QObject):  # type: ignore[misc]  # pylint: disable=too-
     _LIN_STEP = 0.05
     _ANG_STEP = 0.2
 
-    # Speed caps (m/s) depending on whether the user keeps <Shift> pressed.
-    _SPEED_LIMIT_NORMAL = 0.6
-    _SPEED_LIMIT_FAST = 1.2
-
-    def _current_speed_limit(self) -> float:  # noqa: D401 – simple getter
-        """Return the velocity clamp to use for the current key state."""
-
-        return (
-            self._SPEED_LIMIT_FAST
-            if self._is_pressed("shift")
-            else self._SPEED_LIMIT_NORMAL
-        )
-
     @staticmethod
-    def _clamp(val: float, limit: float) -> float:
-        """Clamp *val* into ±*limit* range."""
-
+    def _clamp(val: float, limit: float = 0.6) -> float:
         return max(-limit, min(limit, val))
 
     # Qt calls this for *all* events once we installed the object as filter
@@ -599,7 +529,6 @@ class GeoffWindow(QtCore.QObject):  # type: ignore[misc]  # pylint: disable=too-
             QtCore.Qt.Key_Space: "space",
             QtCore.Qt.Key_Escape: "esc",
             QtCore.Qt.Key_Z: "z",
-            QtCore.Qt.Key_Shift: "shift",
         }
 
         if key in mapping:
@@ -607,7 +536,7 @@ class GeoffWindow(QtCore.QObject):  # type: ignore[misc]  # pylint: disable=too-
 
         if text:
             ch = text.lower()
-            if ch in ("w", "a", "s", "d", "q", "e", "u", "j"):
+            if ch in ("w", "a", "s", "d", "q", "e"):
                 return ch
         return None
 
@@ -619,26 +548,24 @@ class GeoffWindow(QtCore.QObject):  # type: ignore[misc]  # pylint: disable=too-
     def _on_drive_tick(self):  # noqa: D401
         # Update target velocities based on current pressed keys.
 
-        lim = self._current_speed_limit()
-
         if self._is_pressed("w") and not self._is_pressed("s"):
-            self._vx = self._clamp(self._vx + self._LIN_STEP, lim)
+            self._vx = self._clamp(self._vx + self._LIN_STEP)
         elif self._is_pressed("s") and not self._is_pressed("w"):
-            self._vx = self._clamp(self._vx - self._LIN_STEP, lim)
+            self._vx = self._clamp(self._vx - self._LIN_STEP)
         else:
             self._vx = 0.0
 
         if self._is_pressed("q") and not self._is_pressed("e"):
-            self._vy = self._clamp(self._vy + self._LIN_STEP, lim)
+            self._vy = self._clamp(self._vy + self._LIN_STEP)
         elif self._is_pressed("e") and not self._is_pressed("q"):
-            self._vy = self._clamp(self._vy - self._LIN_STEP, lim)
+            self._vy = self._clamp(self._vy - self._LIN_STEP)
         else:
             self._vy = 0.0
 
         if self._is_pressed("a") and not self._is_pressed("d"):
-            self._omega = self._clamp(self._omega + self._ANG_STEP, lim)
+            self._omega = self._clamp(self._omega + self._ANG_STEP)
         elif self._is_pressed("d") and not self._is_pressed("a"):
-            self._omega = self._clamp(self._omega - self._ANG_STEP, lim)
+            self._omega = self._clamp(self._omega - self._ANG_STEP)
         else:
             self._omega = 0.0
 
@@ -690,56 +617,6 @@ class GeoffWindow(QtCore.QObject):  # type: ignore[misc]  # pylint: disable=too-
         # publish for HUD ------------------------------------------------
         with _state_lock:
             _state["vel"] = (self._vx, self._vy, self._omega)
-
-    # ------------------------------------------------------------------
-    #  Arm control helper ----------------------------------------------
-    # ------------------------------------------------------------------
-
-    def _on_arm_tick(self, elbow_idx: int) -> None:  # noqa: D401
-        """Periodic publisher that nudges the left elbow target and
-        transmits the LowCmd message when the Unitree SDK is available.
-
-        The *elbow_idx* is passed from the lambda bound in ``__init__`` so we
-        can keep the timer connection lightweight without repeatedly looking
-        up the constant.
-        """
-
-        if self._arm_pub is None:
-            return  # SDK not available
-
-        # ------------------------------------------------------------------
-        # Update target angle from current key state
-        # ------------------------------------------------------------------
-
-        raise_key = self._is_pressed("u")
-        lower_key = self._is_pressed("j")
-
-        if raise_key and not lower_key:
-            self._elbow_q = min(self._ELBOW_MAX, self._elbow_q + self._ELBOW_STEP)
-        elif lower_key and not raise_key:
-            self._elbow_q = max(self._ELBOW_MIN, self._elbow_q - self._ELBOW_STEP)
-
-        # ------------------------------------------------------------------
-        #  Populate and send LowCmd
-        # ------------------------------------------------------------------
-
-        try:
-            mc = self._arm_cmd.motor_cmd[elbow_idx]  # type: ignore[index]
-            mc.q = self._elbow_q
-            mc.dq = 0.0
-            mc.tau = 0.0
-            mc.kp = 60.0
-            mc.kd = 1.5
-
-            # Recompute CRC – required by the firmware validator.
-            self._arm_cmd.crc = self._crc.Crc(self._arm_cmd)  # type: ignore[attr-defined]
-
-            self._arm_pub.Write(self._arm_cmd)  # type: ignore[arg-type]
-        except Exception as exc:  # pylint: disable=broad-except
-            # Disable further attempts on any runtime error so the GUI stays
-            # responsive even if communication fails mid-session.
-            print("[run_geoff_gui] Arm publish failed:", exc, file=sys.stderr)
-            self._arm_pub = None
 
     # ------------------------------------------------------------------
     #  Map click → route planning
@@ -881,8 +758,6 @@ class GeoffWindow(QtCore.QObject):  # type: ignore[misc]  # pylint: disable=too-
     def _on_quit(self):  # noqa: D401
         self._stop_evt.set()
         self._drive_timer.stop()
-        if hasattr(self, "_arm_timer"):
-            self._arm_timer.stop()
         for t in self._threads:
             t.join(timeout=1.0)
 
