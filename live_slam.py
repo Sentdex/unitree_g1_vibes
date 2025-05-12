@@ -28,18 +28,143 @@ from typing import Optional, Dict, Any
 import os
 
 # ---------------------------------------------------------------------------
-# Mount orientation correction – default assumes the MID-360 is mounted
-# upside-down on the robot.  Override with the env-var:
-#     LIVOX_MOUNT=normal  python live_slam.py
+# Mount orientation correction
+# ---------------------------------------------------------------------------
+# We support two **independent** adjustments that are applied to every point
+# cloud as well as to the reported pose so that downstream consumers (for
+# instance *run_geoff_gui.py*) always operate in the same, right-handed world
+# frame:
+#
+# 1. Upside-down mounting (sensor rotated 180° about its **X-axis**) – this is
+#    enabled by default because the G-1 normally carries the MID-360 on the
+#    top of its head pointing *downwards*.  Override with
+#        LIVOX_MOUNT=normal
+#    if your sensor is mounted the right way up.
+#
+# 2. A *fixed* tilt offset when the robot tilts its entire head.  The LiDAR
+#    and RealSense are mechanically linked, so improving the camera's viewing
+#    angle often means pitching/rolling the LiDAR as well which then confuses
+#    the SLAM/occupancy components.  Specify the correction via the two
+#    environment variables:
+#
+#        LIDAR_TILT_DEG=15     # magnitude in **degrees**
+#        LIDAR_TILT_AXIS=y     # axis to rotate about: x, y or z (default y)
+#
+#    Example – head pitched back about the *y*-axis by 15°:
+#        LIDAR_TILT_DEG=15  LIDAR_TILT_AXIS=y
+#
+#    Example – sensor rolled 10° to the left (rare):
+#        LIDAR_TILT_DEG=10  LIDAR_TILT_AXIS=x
+#
+#    Positive angles follow the right-hand rule for the chosen axis.  The code
+#    applies the *inverse* rotation automatically so entering the physical
+#    tilt you observe is all that is required.
+#
+#    The code used to default to a non-zero angle (15° → later 25°) matching
+#    an early prototype where the MID-360 was pitched forwards.  The default
+#    is now **0°** so no correction is applied on a clean install.  Specify
+#    ``LIDAR_TILT_DEG`` if your physical mounting differs.
 # ---------------------------------------------------------------------------
 
-MOUNT = os.environ.get("LIVOX_MOUNT", "upside_down").lower()
-if MOUNT not in {"normal", "upside_down"}:
-    raise SystemExit("LIVOX_MOUNT must be 'normal' or 'upside_down'")
+# Valid values for the mandatory mounting orientation flag
+_VALID_MOUNTS = {"normal", "upside_down"}
 
-_R_MOUNT = None
-if MOUNT == "upside_down":
-    _R_MOUNT = np.diag([1.0, -1.0, -1.0, 1.0])
+MOUNT = os.environ.get("LIVOX_MOUNT", "upside_down").lower()
+if MOUNT not in _VALID_MOUNTS:
+    raise SystemExit(f"LIVOX_MOUNT must be one of {_VALID_MOUNTS}")
+
+import math  # standard
+
+# ------------------------------------------------------------------
+# Optional fixed tilt – *disabled by default* (0°).  Set the environment
+# variables ``LIDAR_TILT_DEG`` and optionally ``LIDAR_TILT_AXIS`` to apply a
+# correction when the sensor is not perfectly level.
+# ------------------------------------------------------------------
+# Read axis & angle ----------------------------------------------------------
+
+# ------------------------------------------------------------------
+# Optional fixed tilt – default **0°** so no correction is applied unless
+# the user explicitly specifies their sensor inclination via the environment
+# variable *LIDAR_TILT_DEG*.  Geoff’s early configuration required a 25° pitch
+# (handled by a previous default) but the current standard platform mounts
+# the LiDAR level, therefore zero degrees is a safer starting point.
+# ------------------------------------------------------------------
+
+_TILT_AXIS = os.environ.get("LIDAR_TILT_AXIS", "y").lower()
+if _TILT_AXIS not in {"x", "y", "z"}:
+    raise SystemExit("LIDAR_TILT_AXIS must be one of 'x', 'y', 'z'")
+
+# Read the desired tilt angle (degrees) from the environment – fall back to
+# **0°** when not set or invalid so we do not apply any correction by
+# default.
+
+try:
+    _TILT_DEG = float(os.environ.get("LIDAR_TILT_DEG", "0"))
+except ValueError:
+    _TILT_DEG = 0.0
+
+_R_MOUNT = None  # 4×4 homogeneous correction matrix (or *None* = identity)
+
+# Build individual rotation matrices ------------------------------------------------
+
+# 1) Upside-down correction – 180° about sensor X (flip Y and Z)
+_R_FLIP = np.diag([1.0, -1.0, -1.0, 1.0]) if MOUNT == "upside_down" else np.eye(4)
+
+# 2) Fixed pitch about the **Y**-axis.  We follow the right-hand rule where a
+#    *positive* angle corresponds to the head being tilted **back** so the
+#    sensor points slightly upwards.  Applying the inverse rotation therefore
+#    aligns the scan with the true horizontal plane.
+
+# Build the inverse rotation that **undoes** the physical tilt --------------
+
+if abs(_TILT_DEG) > 1e-3:  # negligible => identity
+    _rad = math.radians(-_TILT_DEG)  # negative to *undo* the observed tilt
+    c, s = math.cos(_rad), math.sin(_rad)
+
+    if _TILT_AXIS == "x":
+        _R_TILT = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, c, -s, 0.0],
+                [0.0, s, c, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=float,
+        )
+    elif _TILT_AXIS == "y":
+        _R_TILT = np.array(
+            [
+                [c, 0.0, s, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [-s, 0.0, c, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=float,
+        )
+    else:  # 'z'
+        _R_TILT = np.array(
+            [
+                [c, -s, 0.0, 0.0],
+                [s, c, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=float,
+        )
+else:
+    _R_TILT = np.eye(4)
+
+# Combined correction: first flip (if necessary) *then* tilt.  The order is
+# important: we want to interpret the user-provided axis relative to the
+# *upright* frame.
+
+_R_TOTAL = _R_TILT @ _R_FLIP
+
+# Use identity (=> None) when no correction required so later code can take a
+# fast path.
+
+if not np.allclose(_R_TOTAL, np.eye(4)):
+    _R_MOUNT = _R_TOTAL
 
 # ---------------------------------------------------------------------------
 # KISS-ICP import logic – cope with package layout changes.
@@ -334,9 +459,15 @@ class LiveSLAMDemo(_Livox):
         except AttributeError:
             # Newer kiss-icp exposes VoxelHashMap via .local_map
             cloud = self._slam.local_map.point_cloud()
-        # Apply mount orientation correction for visualisation & ICP pose.
+        # ------------------------------------------------------------------
+        # Apply mount orientation correction (flip/pitch etc.) to both the
+        # accumulated cloud and the reported pose so that callers always see
+        # an *upright* point cloud where +Z is up and +X points forward.
+        # ------------------------------------------------------------------
         if _R_MOUNT is not None:
-            cloud = cloud * np.array([1.0, -1.0, -1.0], dtype=cloud.dtype)
+            # Rotate every point – for row-major xyz we need to post-multiply
+            # by Rᵀ (equivalent to pre-multiplying the *column* vector).
+            cloud = (cloud @ _R_MOUNT[:3, :3].T).astype(cloud.dtype, copy=False)
 
         if cloud.shape[0] > self._vis_max_points:
             step = int(cloud.shape[0] / self._vis_max_points) + 1

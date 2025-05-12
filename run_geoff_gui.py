@@ -446,8 +446,22 @@ class GeoffWindow(QtCore.QObject):  # type: ignore[misc]  # pylint: disable=too-
         self.rgb_lbl = QtWidgets.QLabel(alignment=QtCore.Qt.AlignCenter)
         self.depth_lbl = QtWidgets.QLabel(alignment=QtCore.Qt.AlignCenter)
 
+        # Do not crop the incoming 640×480 RealSense streams – display the
+        # *full* image (letter-boxed) so users always see the entire frame.
+        # A minimum size of **320 px** keeps the original compact layout
+        # while still allowing the window to shrink when screen real-estate
+        # is limited.  The pixmaps are later *scaled* to fit the current
+        # widget size whilst preserving the aspect-ratio which results in
+        # black bars rather than cutting off the top / bottom.
+
         self.rgb_lbl.setMinimumSize(640, 320)
         self.depth_lbl.setMinimumSize(640, 320)
+
+        # Explicitly set a black background so the letter-boxing blends in
+        # nicely with the rest of the UI (cropped areas would otherwise
+        # appear as default-coloured QWidget background).
+        for _lbl in (self.rgb_lbl, self.depth_lbl):
+            _lbl.setStyleSheet("background-color: black")
 
         # 2-D occupancy preview  -------------------------------------------------
         # Replace the static QLabel with a pyqtgraph ImageItem inside an
@@ -1207,9 +1221,28 @@ class GeoffWindow(QtCore.QObject):  # type: ignore[misc]  # pylint: disable=too-
             rgb, depth = rgbd[:, :640], rgbd[:, 640:]
             px1, px2 = self._numpy_to_qpix(rgb), self._numpy_to_qpix(depth)
             if px1:
-                self.rgb_lbl.setPixmap(px1)
+                from PySide6 import QtCore  # local import – only needed here
+
+                # Scale the pixmap to *fit* inside the current label size
+                # while keeping the original aspect-ratio.  This avoids the
+                # previous behaviour where the 480-pixel-tall camera image
+                # was simply cropped to ~320 px so it fit into the stacked
+                # layout.  Users now get mild letter-boxing (black bars) but
+                # never lose any content of the frame.
+                scaled = px1.scaled(
+                    self.rgb_lbl.size(),
+                    QtCore.Qt.KeepAspectRatio,
+                    QtCore.Qt.SmoothTransformation,
+                )
+                self.rgb_lbl.setPixmap(scaled)
             if px2:
-                self.depth_lbl.setPixmap(px2)
+                from PySide6 import QtCore  # local import – only needed here
+                scaled = px2.scaled(
+                    self.depth_lbl.size(),
+                    QtCore.Qt.KeepAspectRatio,
+                    QtCore.Qt.SmoothTransformation,
+                )
+                self.depth_lbl.setPixmap(scaled)
 
         status_txt = f"vx {vx:+.2f}  vy {vy:+.2f}  omega {om:+.2f}"
         if soc is not None:
